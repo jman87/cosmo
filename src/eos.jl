@@ -30,7 +30,7 @@
 const PA_TO_PSI           = 1.450377e-4
 const KG_M3_TO_LBF_S2_IN4 = 0.001940320 / 20736          # ≈ 9.357e-8
 const J_KG_TO_IN2_S2      = 1550.003                      # 1 J/kg = 1550.003 in^2/s^2
-const G_C                 = 386.088                       # in/s^2 (lbm -> lbf*s^2/in)
+const G_C                 = 386.088                       # in/s^2 (weight in lbf -> mass in lbf*s^2/in via m = W / g_c)
 
 # --- Ideal-gas EOS --------------------------------------------------------
 struct IdealGas

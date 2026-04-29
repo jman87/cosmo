@@ -34,8 +34,7 @@ end
 
 function build_charge(cfg::CaseConfig)
     shape  = Symbol(cfg.charge_shape)
-    weight = cfg.charge_weight_lbm
-    mass   = weight / G_C                       # lbf*s^2/in
+    mass   = cfg.charge_mass                    # lbf*s^2/in (consistent units)
     volume = mass / TNT.rho0                    # in^3
 
     radius, half_h = if shape === :sphere
