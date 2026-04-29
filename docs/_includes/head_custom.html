@@ -1,0 +1,23 @@
+<!-- MathJax 3 — configure BEFORE loading the library -->
+<script>
+  MathJax = {
+    tex: {
+      inlineMath:  [['$$', '$$'], ['\\(', '\\)']],
+      displayMath: [['\\[', '\\]']],
+      processEscapes: true,
+      tags: 'ams',
+      macros: {
+        bU: '\\mathbf{U}',
+        bF: '\\mathbf{F}',
+        bG: '\\mathbf{G}',
+        bS: '\\mathbf{S}',
+        bR: '\\mathbf{R}',
+        bM: '\\mathbf{M}',
+        pd:  ['\\dfrac{\\partial #1}{\\partial #2}', 2]
+      }
+    }
+  };
+</script>
+<script type="text/javascript" id="MathJax-script" async
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js">
+</script>

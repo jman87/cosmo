@@ -1,0 +1,58 @@
+title: "COSMO Theory Manual"
+description: >
+  Theory and numerical methods for the COSMO 2-D axisymmetric
+  air-blast finite-volume solver.
+
+baseurl: "/cosmo"
+url: "https://jman87.github.io"
+
+theme: just-the-docs
+
+# Apply the just-the-docs layout to every page.
+# Without this, Jekyll renders pages as bare content fragments (no <head>,
+# no CSS, no sidebar) because Jekyll does NOT inherit defaults from the theme
+# gem's own _config.yml.
+defaults:
+  - scope:
+      path: ""          # all files
+    values:
+      layout: "default"
+
+plugins:
+  - jekyll-seo-tag
+
+# ── Just the Docs settings ─────────────────────────────────────────────────
+search_enabled: true
+search_tokenizer_separator: /[\s\-\/]+/
+
+heading_anchors: true
+
+aux_links:
+  "GitHub Repository":
+    - "https://github.com/jman87/cosmo"
+aux_links_new_tab: true
+
+footer_content: >
+  Copyright &copy; 2026 COSMO contributors.
+  Distributed under the
+  <a href="https://github.com/jman87/cosmo/blob/main/LICENSE">MIT License</a>.
+  Built with <a href="https://just-the-docs.com">Just the Docs</a>.
+
+# ── Kramdown ────────────────────────────────────────────────────────────────
+kramdown:
+  # Use the mathjax math engine so Kramdown wraps $$...$$ blocks in
+  # <script type="math/tex"> tags instead of processing the LaTeX content as
+  # Markdown. Without this, backslashes, underscores, and \\ row-breaks in
+  # equations get mangled before MathJax ever sees them.
+  math_engine: mathjax
+  syntax_highlighter_opts:
+    block:
+      line_numbers: false
+
+# ── Build exclusions ────────────────────────────────────────────────────────
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - "*.gem"
+  - "*.gemspec"
+  - README.md

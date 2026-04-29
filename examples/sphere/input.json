@@ -1,0 +1,35 @@
+{
+  "_comment": [
+    "1-lb TNT sphere, free-air burst, axisymmetric quarter-domain.",
+    "Charge radius computed from weight + RHO_TNT: ~1.59 in.",
+    "96x96 cells over 60x60 in domain -> dr = dz = 0.625 in, ~5 cells across charge radius.",
+    "Programmed-burn IC with the built-in TNT JWL EOS for the products."
+  ],
+  "mesh": {
+    "nr": 96,
+    "nz": 96
+  },
+  "domain": {
+    "r_min": 0.0,
+    "r_max": 60.0,
+    "z_min": 0.0,
+    "z_max": 60.0
+  },
+  "charge": {
+    "shape": "sphere",
+    "weight_lbm": 1.0,
+    "center": { "r": 0.0, "z": 0.0 },
+    "explosive_material": "tnt",
+    "initial_condition": "programmed_burn"
+  },
+  "time": {
+    "t_end": 1.0e-3,
+    "cfl": 0.4,
+    "scheme": "ssp_rk2"
+  },
+  "output": {
+    "directory": "cosmo/examples/sphere/output",
+    "frequency": 50,
+    "pvd_name": "sphere"
+  }
+}
