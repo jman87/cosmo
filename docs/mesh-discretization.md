@@ -1,10 +1,10 @@
 ---
-title: Mesh & Discretization
+title: Mesh and Grid
 nav_order: 5
-description: "Structured Cartesian mesh, Q2 Lagrange quadrilateral elements, and function spaces."
+description: "Structured Cartesian (r, z) finite-volume mesh, ghost cells, and indexing convention."
 ---
 
-# Mesh & Discretization
+# Mesh and Grid
 {: .no_toc }
 
 ## Table of contents
@@ -15,125 +15,183 @@ description: "Structured Cartesian mesh, Q2 Lagrange quadrilateral elements, and
 
 ---
 
-## Eulerian description
+## Eulerian, cell-centred description
 
-COSMO uses an **Eulerian** (fixed-mesh) description: the computational mesh is static
-and fluid material passes through cell faces.  This contrasts with a Lagrangian approach
-in which mesh nodes move with the fluid.  For blast problems the large deformations and
-material interactions favor the Eulerian frame despite its higher numerical diffusion at
-material interfaces.
-
----
-
-## Mesh construction
-
-The computational domain is the rectangle
-
-$$
-\Omega = [r_\text{min},\, r_\text{max}] \times [z_\text{min},\, z_\text{max}]
-$$
-
-partitioned into a uniform structured grid of $$n_r \times n_z$$ **quadrilateral cells**.
-DOLFINx constructs this mesh via `create_rectangle` with `CellType.quadrilateral`.
-
-Mesh coordinates map directly to physical coordinates:
-
-* coordinate axis 0 → $$r$$ (radial),
-* coordinate axis 1 → $$z$$ (axial).
-
-The symmetry axis sits at $$r = r_\text{min} = 0$$ for standard axisymmetric problems.
-
-### Cell size and resolution guidelines
-
-For a charge of radius $$R$$, the cell dimensions are
-
-$$
-\Delta r = \frac{r_\text{max} - r_\text{min}}{n_r}, \qquad
-\Delta z = \frac{z_\text{max} - z_\text{min}}{n_z}.
-$$
-
-A minimum of **~5 cells across the charge radius** is required to capture the initial
-blast; 20–30 cells provides good resolution of the peak overpressure.  The examples
-provided target 30 cells across the charge radius for production runs.
+COSMO uses a fixed (Eulerian) **cell-centred finite-volume** description.
+The computational mesh is a uniform structured grid; fluid material passes
+through cell faces and the conserved quantities $$(\rho,\, \rho u_r,\,
+\rho u_z,\, \rho E)$$ are stored as cell-volume averages at the cell
+centroids. This contrasts with a Lagrangian description in which mesh
+nodes move with the fluid, and with a finite-element description in which
+the unknowns are nodal coefficients of a continuous polynomial expansion.
+For blast problems the very large deformations and material interactions
+favour the Eulerian frame even though it incurs more numerical diffusion at
+material interfaces than a Lagrangian or interface-tracking method.
 
 ---
 
-## Finite element spaces
+## Global computational domain
 
-Four function spaces are defined on the mesh.
-
-### Q2 — degree-2 Lagrange quadrilaterals (scalar)
-
-Used for density $$\rho$$, total energy density $$\rho E$$, and pressure output.
-
-A 9-node (full tensor-product) biquadratic basis is used.  On the reference element
-$$\hat{\Omega} = [-1,1]^2$$ the 9 basis functions are the tensor products of the
-one-dimensional Lagrange polynomials through the nodes $$\{-1, 0, 1\}$$:
+The global mesh covers the rectangle
 
 $$
-\hat{\phi}_{ij}(\xi,\eta) = L_i(\xi)\, L_j(\eta), \quad i,j \in \{0,1,2\},
+\Omega \;=\; [r_\text{min},\, r_\text{max}] \;\times\; [z_\text{min},\, z_\text{max}]
 $$
 
-where $$L_0(\xi) = \tfrac{1}{2}\xi(\xi-1)$$, $$L_1(\xi) = 1 - \xi^2$$,
-$$L_2(\xi) = \tfrac{1}{2}\xi(\xi+1)$$.
+partitioned into $$n_r \times n_z$$ uniform rectangular cells:
 
-The 9 local nodes are:
+$$
+\Delta r \;=\; \frac{r_\text{max} - r_\text{min}}{n_r},
+\qquad
+\Delta z \;=\; \frac{z_\text{max} - z_\text{min}}{n_z}.
+$$
 
-```
-(-1,+1) ---- (0,+1) ---- (+1,+1)
-   |              |              |
-(-1, 0) ---- (0, 0) ---- (+1, 0)
-   |              |              |
-(-1,-1) ---- (0,-1) ---- (+1,-1)
-```
+By convention, axis 0 of the mesh is the **radial** direction $$r$$ and
+axis 1 is the **axial** direction $$z$$. The symmetry axis sits at
+$$r = r_\text{min} = 0$$ for standard axisymmetric problems.
 
-(4 corners, 4 edge midpoints, 1 cell center).
+### Cell centres and faces
 
-**Global DOF count** (uniform mesh, continuous): approximately
-$$(2n_r + 1)(2n_z + 1)$$ for a mesh with $$n_r \times n_z$$ cells.
+Cell $$(i, j)$$ has
 
-### Q2v — degree-2 Lagrange quadrilaterals (vector)
+* **centre** at $$(r_i,\, z_j)$$ with
+  $$r_i = r_\text{min} + (i - \tfrac{1}{2})\,\Delta r$$ and
+  $$z_j = z_\text{min} + (j - \tfrac{1}{2})\,\Delta z$$,
+* **radial faces** at $$r = r_{i-1/2}$$ (left) and $$r = r_{i+1/2}$$
+  (right) with $$r_{i \pm 1/2} = r_\text{min} + (i \mp \tfrac{1}{2})\,\Delta r$$
+  modulo the offset by one,
+* **axial faces** at $$z = z_{j-1/2}$$ (bottom) and $$z = z_{j+1/2}$$ (top).
 
-Used for the momentum vector $$(\rho u_r, \rho u_z)$$.  This is the vector extension of
-Q2: each DOF carries two components, so the global DOF array is twice as long as the
-scalar Q2 array.  Components are interleaved (block size 2):
-`array = [u_r_0, u_z_0, u_r_1, u_z_1, ...]`.
+Because all azimuthal integrals contribute a uniform factor $$2\pi$$, the
+solver works with the **annular** form of the cell volume and face areas
+(the $$2\pi$$ cancels everywhere):
 
-### DG0 — piecewise-constant discontinuous Galerkin
+$$
+V_{ij} \;=\; r_i\,\Delta r\,\Delta z,
+$$
 
-Used for the material indicator $$\lambda$$ (burn fraction).  Each cell has exactly one
-DOF located at the cell centroid; no inter-cell continuity is imposed.  This is
-appropriate because $$\lambda$$ jumps discontinuously at the detonation front.
+$$
+A^{(r)}_{i\pm 1/2,\,j} \;=\; r_{i\pm 1/2}\,\Delta z,
+\qquad
+A^{(z)}_{i,\,j\pm 1/2} \;=\; r_i\,\Delta r.
+$$
 
-**Global DOF count**: $$n_r \times n_z$$ (one per cell).
+These appear directly in the discrete divergence theorem
+([Finite-Volume Discretisation](finite-volume)).
 
-### Q1 — degree-1 Lagrange quadrilaterals (scalar)
+### Resolution guidelines
 
-Used for visualization output only.  The 4-node bilinear basis has one DOF per vertex.
-Q2 state fields are interpolated to Q1 before writing to VTK files (see [Output](output)).
+Empirical practice for free-air blast problems is
+
+* a **minimum of 5 cells across the charge radius** to capture the
+  initial expansion;
+* **20–30 cells across the charge radius** for converged peak overpressure
+  in the near field;
+* outer-domain mesh size matched to the inner mesh — the structured
+  uniform grid does not stretch.
+
+The bundled `examples/sphere/input.jsonc` uses 96 × 96 cells on a
+$$60 \times 60$$ in domain, giving $$\Delta r = \Delta z = 0.625$$ in and
+roughly 2.5 cells across the 1.59 in TNT-sphere radius. This is a
+deliberately coarse smoke-test mesh; the `coarse_sphere` example is even
+coarser. Production runs typically use $$256 \times 256$$ or larger.
 
 ---
 
-## MPI domain decomposition
+## Ghost cells
 
-When launched with multiple MPI ranks, DOLFINx automatically partitions the mesh by
-distributing contiguous groups of cells to each rank using a graph partitioner (SCOTCH or
-ParMETIS via PETSc).  Each rank owns a subset of cells and a layer of **ghost cells**
-(cells owned by neighboring ranks that share a face with an owned cell).
+Each rank stores its block of interior cells **plus** $$n_g$$ layers of
+**ghost cells** on every side. The ghost layers serve two roles:
 
-Ghost DOF values are synchronized via `ghostUpdate()` calls after each vector assembly,
-ensuring that the explicit update $$\mathbf{U} \leftarrow \mathbf{U} + \Delta t\,\mathbf{M}^{-1}\mathbf{R}$$
-is consistent across ranks.
+1. They provide the four-cell stencil needed for MUSCL reconstruction
+   (`U_LL, U_L, U_R, U_RR`) at the first and last interior face;
+2. They store either physical-boundary BC values (filled by `apply_bcs!`
+   on edge ranks) or off-rank neighbour values (filled by
+   `exchange_halos!` on internal seams).
 
-The CFL time step computation and the minimum cell size are reduced across all ranks
-using `MPI.allreduce` with the `MPI.MIN` / `MPI.MAX` operators.
+The solver uses
+
+$$
+n_g \;=\; \texttt{NGHOST} \;=\; 2,
+$$
+
+which is the minimum required for the 4-point MUSCL stencil with minmod.
+Increasing $$n_g$$ would only be necessary for a wider stencil
+(e.g. WENO-5 or higher).
+
+### Indexing convention
+
+Per-rank arrays carry the ghost layers explicitly:
+
+* total radial width: $$n_r^\text{tot} \;=\; n_r + 2 n_g$$
+  (`grid.nri` in code),
+* total axial width: $$n_z^\text{tot} \;=\; n_z + 2 n_g$$
+  (`grid.nzj` in code),
+* the **interior** cell index range is
+  $$i \in [n_g + 1,\; n_g + n_r]$$,
+  $$j \in [n_g + 1,\; n_g + n_z]$$.
+
+In source code these ranges appear as `interior_i(grid)` /
+`interior_j(grid)` (defined in
+[`src/grid.jl`](https://github.com/jman87/cosmo/blob/main/src/grid.jl)).
+The face index `iface` lies between cells `iface - 1` and `iface`, so the
+face arrays in `src/timeint.jl` carry one more entry than the cell arrays
+in each direction.
+
+The cell-centre and face coordinates are stored at their **physical**
+locations, so a ghost cell that sits adjacent to the symmetry axis has a
+mathematically negative $$r$$. This negative-$$r$$ value is not used as a
+geometry input — the volume and face areas in the residual always use
+interior cell-centres — but it preserves the natural indexing for the
+mirror-reflection BC at $$r = 0$$.
 
 ---
 
-## Quadrature
+## Per-rank block partitioning
 
-All integrals in the weak form are evaluated with **Gauss–Legendre quadrature** on the
-reference quadrilateral.  The mass-matrix form involves Q2 × Q2 × $$r$$ (polynomial
-degree $$\leq 5$$ in each variable on a uniform mesh), which requires at least a
-$$3 \times 3$$ Gauss rule to integrate exactly.  DOLFINx is instructed to use
-`quadrature_degree = 5` for the lumped-mass assembly (see [Time Integration](time-integration)).
+When launched on more than one MPI rank the global $$n_r \times n_z$$
+mesh is split across a $$P_r \times P_z$$ Cartesian process grid whose
+factorisation is chosen by `MPI.Dims_create`. Each rank owns a contiguous
+rectangular block of interior cells; the `block_extents(n_global, np, ip)`
+helper returns the block offset and local cell count for rank coordinate
+`ip` along one direction. Remainder cells are spread over the
+lowest-coordinate ranks so the load imbalance is at most one cell per rank
+in either direction.
+
+Single-rank runs reduce to a $$1 \times 1$$ process grid with
+`MPI.PROC_NULL` neighbours, so the same code path serves serial and
+parallel runs without branching.
+
+The full discussion of the parallel topology, halo exchange, and
+collective operations is in [MPI Parallelisation](parallelisation).
+
+---
+
+## State and flux arrays
+
+For each rank the time stepper allocates the following arrays
+(types `State` and `Grid` in `src/timeint.jl` and `src/grid.jl`):
+
+| Array | Shape | Role |
+|-------|-------|------|
+| `state.U` | $$(4,\, n_r^\text{tot},\, n_z^\text{tot})$$ | Conservative state at cell centres |
+| `state.U0` | same | Snapshot for SSP-RK |
+| `state.L` | same | Spatial residual buffer |
+| `state.Fr` | $$(4,\, n_r^\text{tot}+1,\, n_z^\text{tot})$$ | $$r$$-direction numerical fluxes at radial faces |
+| `state.Fz` | $$(4,\, n_r^\text{tot},\, n_z^\text{tot}+1)$$ | $$z$$-direction numerical fluxes at axial faces |
+| `state.lambda` | $$(n_r^\text{tot},\, n_z^\text{tot})$$ | Reaction-progress variable (programmed burn) |
+| `state.rhoY` | $$(n_r^\text{tot},\, n_z^\text{tot})$$ | Conservative passive scalar (material tag) |
+| `state.rhoY0` | same | RK snapshot of `rhoY` |
+| `state.LrhoY` | same | Residual buffer for `rhoY` |
+
+The conservative state is laid out with the variable index *first*
+(`U[k, i, j]`) so that all four components of a single cell are contiguous
+in memory; this is the layout that the HLLC and MUSCL kernels access in
+inner loops. The fluxes are stored at faces, so `Fr[:, iface, j]` is the
+flux through the face between cells `iface - 1` and `iface`.
+
+Both the conservative state $$\mathbf{U}$$ and the passive scalar
+$$\rho Y$$ have ghost layers and participate in halo exchange. The
+reaction-progress variable $$\lambda$$ is also halo-exchanged after each
+update (it is needed on neighbour ghost cells for HLLC on inter-rank
+faces).
