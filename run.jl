@@ -2,8 +2,11 @@
 # Entry-point script for cosmo.
 #
 # Usage:
-#   serial:    julia --project=cosmo cosmo/run.jl path/to/input.json
-#   parallel:  mpiexec -n 4 julia --project=cosmo cosmo/run.jl path/to/input.json
+#   serial:    julia --project=cosmo cosmo/run.jl path/to/input.jsonc
+#   parallel:  mpiexec -n 4 julia --project=cosmo cosmo/run.jl path/to/input.jsonc
+#
+# Input files may be strict JSON (.json) or JSON-with-comments (.jsonc);
+# both `//` line and `/* ... */` block comments are stripped before parsing.
 #
 # `MPI.Init` is called on entry; serial runs work transparently because
 # MPI sees a single-rank world and the geometric partitioner picks a
@@ -18,7 +21,7 @@ using MPI
 
 if length(ARGS) != 1
     if MPI.Initialized() ? MPI.Comm_rank(MPI.COMM_WORLD) == 0 : true
-        println(stderr, "Usage: julia --project=cosmo cosmo/run.jl <input.json>")
+        println(stderr, "Usage: julia --project=cosmo cosmo/run.jl <input.json|.jsonc>")
     end
     exit(1)
 end

@@ -35,7 +35,7 @@ function run_case(input_path::AbstractString)
         @printf "  global mesh    : %d x %d cells\n" grid.nr_global grid.nz_global
         @printf "  domain         : r in [%.3f, %.3f]  z in [%.3f, %.3f] in\n" cfg.r_min cfg.r_max cfg.z_min cfg.z_max
         @printf "  dr, dz         : %.4e, %.4e in\n" grid.dr grid.dz
-        @printf "  charge         : %s   weight %.3f lbm   radius %.4f in\n" charge.shape cfg.charge_weight_lbm charge.radius
+        @printf "  charge         : %s   mass %.4e lbf*s^2/in (weight %.3f lbf)   radius %.4f in\n" charge.shape cfg.charge_mass (cfg.charge_mass * G_C) charge.radius
         @printf "  IC             : %s   D = %.3e in/s\n" charge.ic_kind charge.det_vel
         @printf "  EOS            : air (ideal, gamma=1.4) + JWL (TNT)\n"
         @printf "  ambient air    : rho=%.3e  p=%.3f psi\n" RHO_AIR_STP P_ATM

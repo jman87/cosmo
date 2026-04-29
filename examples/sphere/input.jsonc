@@ -1,7 +1,7 @@
 {
   "_comment": [
-    "1-lb TNT sphere, free-air burst, axisymmetric quarter-domain.",
-    "Charge radius computed from weight + RHO_TNT: ~1.59 in.",
+    "1-lbf TNT sphere, free-air burst, axisymmetric quarter-domain.",
+    "Charge radius computed from mass + RHO_TNT: ~1.59 in.",
     "96x96 cells over 60x60 in domain -> dr = dz = 0.625 in, ~5 cells across charge radius.",
     "Programmed-burn IC with the built-in TNT JWL EOS for the products."
   ],
@@ -17,7 +17,11 @@
   },
   "charge": {
     "shape": "sphere",
-    "weight_lbm": 1.0,
+    // Charge size: specify EITHER "mass" (lbf*s^2/in, the consistent-unit
+    // value used throughout the solver) OR "weight" (lbf, converted via
+    // m = W / g_c with g_c = 386.088 in/s^2). Do not specify both.
+    "mass": 2.5900830898655225e-3,
+    // "weight": 1.0,
     "center": { "r": 0.0, "z": 0.0 },
     "explosive_material": "tnt",
     "initial_condition": "programmed_burn"

@@ -1,7 +1,7 @@
 ---
 title: Time Integration
 nav_order: 8
-description: "SSP Runge-Kutta schemes, lumped mass matrix, and CFL stability condition."
+description: "Explicit SSP Runge–Kutta time stepping and the CFL stability condition for the cell-centred finite-volume residual."
 ---
 
 # Time Integration
@@ -17,204 +17,269 @@ description: "SSP Runge-Kutta schemes, lumped mass matrix, and CFL stability con
 
 ## Method of lines
 
-The spatial discretization converts the PDEs into the semi-discrete system
+The finite-volume spatial discretisation
+([Finite-Volume Discretisation](finite-volume)) reduces the PDE system to
+a system of ordinary differential equations in time:
 
 $$
-\mathbf{M}\,\dot{\mathbf{U}} = \mathbf{R}(\mathbf{U}, t),
+\frac{d \mathbf{U}_{ij}}{dt} \;=\; \mathbf{L}(\mathbf{U})_{ij},
 \tag{MOL}
 $$
 
-where:
-
-* $$\mathbf{U}(t)$$ is the global vector of all DOF values for $$(\rho, \rho u_r, \rho u_z, \rho E)$$,
-* $$\mathbf{M}$$ is the consistent mass matrix (or its row-sum lumped approximation), and
-* $$\mathbf{R}(\mathbf{U})$$ is the assembled spatial residual from the weak form.
-
-Explicit time integration of equation (MOL) avoids solving a nonlinear system each step
-and is natural for hyperbolic problems.
-
----
-
-## Lumped mass matrix
-
-### Why lumping?
-
-The **consistent mass matrix** $$M_{ij} = \int_\Omega \phi_i \phi_j\, r\,dr\,dz$$ is
-banded but not diagonal; inverting it at each time step is expensive.  **Row-sum lumping**
-replaces $$M_{ij}$$ with the diagonal matrix
+where $$\mathbf{U}_{ij}$$ is the cell-averaged conservative state and
+$$\mathbf{L}$$ is the **spatial residual**
 
 $$
-M_i^L = \sum_j M_{ij} = \int_\Omega \phi_i \sum_j \phi_j\, r\,dr\,dz = \int_\Omega \phi_i\, r\,dr\,dz,
+\mathbf{L}(\mathbf{U})_{ij}
+\;=\;
+- \frac{1}{V_{ij}}
+  \Bigl[
+    \bigl(\mathbf{F}^*_{i+1/2,j}\,r_{i+1/2} \;-\; \mathbf{F}^*_{i-1/2,j}\,r_{i-1/2}\bigr)\,\Delta z
+    \;+\;
+    \bigl(\mathbf{G}^*_{i,j+1/2} \;-\; \mathbf{G}^*_{i,j-1/2}\bigr)\,r_i\,\Delta r
+  \Bigr]
+\;+\; \mathbf{S}_{p,\,ij}.
 $$
 
-where the last equality uses the partition of unity property
-$$\sum_j \phi_j(\mathbf{x}) = 1$$.  The explicit update then reduces to
+Because the FV cell volume is the only "mass" weight that appears, the
+update in (MOL) is **already pre-multiplied** by $$V_{ij}^{-1}$$. There
+is no global mass matrix to invert and no row-sum lumping is required —
+the per-cell update is a scalar arithmetic operation. The same residual
+structure applies to the passive scalar $$\rho Y$$ and is computed in
+the same `compute_residual!` call.
 
-$$
-U_i^{n+1} = U_i^n + \Delta t\, \frac{R_i}{M_i^L} \quad \forall i,
-$$
-
-which is a per-DOF scalar division — no global linear solve required.
-
-### Symmetry-axis entries
-
-At nodes on the symmetry axis $$r = 0$$, the cylindrical measure $$r\,dr\,dz = 0$$ makes
-the row-sum exactly zero.  These entries are floored to a small fraction of the smallest
-off-axis row-sum before the division, preventing blow-up.  The axisymmetric residual
-$$R_i$$ is also very small at axis nodes (the same $$r$$ factor appears in the flux integral),
-so the resulting update $$\Delta U_i \approx 0$$ is physically correct.
-
-### Assembly
-
-The lumped mass is assembled once at the start of the run by constructing the consistent
-mass matrix $$\mathbf{M}$$ and multiplying by the all-ones vector:
-
-$$
-\mathbf{m}^L = \mathbf{M}\,\mathbf{1}.
-$$
-
-Separate lumped masses are built for the scalar (Q2) and vector (Q2v) spaces.
+Explicit time integration of (MOL) avoids any nonlinear solve per step
+and is the natural choice for hyperbolic problems whose maximum stable
+$$\Delta t$$ is set by the CFL bound rather than by stiffness.
 
 ---
 
 ## Explicit time-stepping schemes
 
+Two explicit schemes are implemented in
+[`src/timeint.jl`](https://github.com/jman87/cosmo/blob/main/src/timeint.jl);
+both apply the same per-cell update kernel to the conservative state
+$$\mathbf{U}$$ and the passive scalar $$\rho Y$$ in lock-step.
+
 ### Forward Euler (1st order)
 
 $$
-\mathbf{U}^{n+1} = \mathbf{U}^n + \Delta t\,(\mathbf{M}^L)^{-1}\mathbf{R}(\mathbf{U}^n).
+\mathbf{U}^{n+1}_{ij}
+\;=\;
+\mathbf{U}^n_{ij} \;+\; \Delta t\,\mathbf{L}(\mathbf{U}^n)_{ij}.
 $$
 
-First-order accurate in time.  Provided for debugging and verification only; it is
-inefficient in practice because the CFL constraint requires the same small $$\Delta t$$
-as higher-order schemes.
+First-order accurate in time. Provided for debugging and verification
+only — its formal accuracy is mismatched with the 2nd-order MUSCL
+spatial reconstruction, and it has the same CFL constraint as the
+higher-order schemes, so it is strictly worse than SSP-RK2 in production.
+
+The implementation is `step_forward_euler!`. The `forward_euler` /
+`fe` / `euler` aliases in the JSON input all select this scheme.
 
 ---
 
-### SSP-RK2 (2-stage, 2nd order) — default
+### SSP-RK2 / Heun (2-stage, 2nd order) — default
 
-The **Strong-Stability-Preserving Runge-Kutta** scheme of Shu & Osher (1988), also
-called the **Heun predictor-corrector**, is the default time integrator:
-
-$$
-\mathbf{U}^{(1)} = \mathbf{U}^n + \Delta t\,(\mathbf{M}^L)^{-1}\mathbf{R}(\mathbf{U}^n),
-$$
+The **strong-stability-preserving** Runge–Kutta scheme of Shu & Osher
+(1988), also known as the Heun predictor-corrector, is the default
+integrator:
 
 $$
-\mathbf{U}^{n+1} = \tfrac{1}{2}\,\mathbf{U}^n
-+ \tfrac{1}{2}\!\left[\mathbf{U}^{(1)} + \Delta t\,(\mathbf{M}^L)^{-1}\mathbf{R}(\mathbf{U}^{(1)})\right].
+\mathbf{U}^{(1)}_{ij}
+\;=\; \mathbf{U}^n_{ij} \;+\; \Delta t\,\mathbf{L}(\mathbf{U}^n)_{ij},
 $$
 
-This is equivalent to the standard 2nd-order Runge-Kutta method but expressed in
-Shu-Osher (convex-combination) form to make the SSP property transparent:
-$$\mathbf{U}^{n+1}$$ is a convex combination of $$\mathbf{U}^n$$ and a forward-Euler update
-of $$\mathbf{U}^{(1)}$$.
+$$
+\mathbf{U}^{n+1}_{ij}
+\;=\; \tfrac{1}{2}\,\mathbf{U}^n_{ij}
+\;+\; \tfrac{1}{2}\,\bigl[\,\mathbf{U}^{(1)}_{ij}
+\;+\; \Delta t\,\mathbf{L}(\mathbf{U}^{(1)})_{ij}\,\bigr].
+$$
 
-**SSP property**: If the forward-Euler update is strongly stable (does not increase a
-chosen norm) under a time-step restriction $$\Delta t \leq \Delta t_\text{FE}$$, then
-SSP-RK2 is strongly stable under the same restriction.  For TVD (total-variation-
-diminishing) norms this guarantees no spurious oscillation growth.
+Equivalent to the standard 2nd-order RK method but expressed in
+**Shu–Osher (convex-combination) form** so that the SSP property is
+manifest: the final update is a convex combination of $$\mathbf{U}^n$$
+and a forward-Euler step of $$\mathbf{U}^{(1)}$$.
 
-**Cost**: 2 residual evaluations per step.
+**SSP property.** If the forward-Euler update is strongly stable
+(does not increase a chosen norm) under a step bound
+$$\Delta t \leq \Delta t_\text{FE}$$, then SSP-RK2 is strongly stable
+under the same bound. Combined with a TVD spatial reconstruction
+(MUSCL-minmod, see
+[Riemann Solver and Reconstruction](riemann-reconstruction)) this
+guarantees no spurious oscillation growth across shocks: the discrete
+total variation of the solution does not increase from one time step to
+the next.
+
+**Cost.** Two residual evaluations per step. Each residual evaluation
+performs one halo exchange on $$\mathbf{U}$$, one on $$\rho Y$$, one BC
+pass, one full MUSCL+HLLC face-flux assembly, and one residual
+assembly.
+
+The implementation is `step_ssp_rk2!`. The aliases `ssp_rk2` /
+`rk2` / `heun` all select this scheme.
 
 ---
 
-### SSP-RK3 (3-stage, 3rd order)
+### Why no SSP-RK3
 
-The 3-stage, 3rd-order Shu-Osher scheme:
+The previous Python sibling solver also offered an SSP-RK3 option
+(Shu–Osher 3-stage, 3rd order). The Julia implementation deliberately
+omits SSP-RK3:
 
-$$
-\mathbf{U}^{(1)} = \mathbf{U}^n + \Delta t\,(\mathbf{M}^L)^{-1}\mathbf{R}(\mathbf{U}^n),
-$$
+* The spatial scheme is at most 2nd-order accurate (MUSCL+minmod), so a
+  3rd-order time stepper does not improve the order of the combined
+  scheme — at shocks both schemes drop to 1st order and at smooth
+  extrema the limiter caps spatial accuracy at 1st order.
+* SSP-RK3 costs 3 residual evaluations per step versus 2 for SSP-RK2,
+  a 50 % runtime increase for no measurable gain on practical blast
+  problems.
 
-$$
-\mathbf{U}^{(2)} = \tfrac{3}{4}\,\mathbf{U}^n
-+ \tfrac{1}{4}\!\left[\mathbf{U}^{(1)} + \Delta t\,(\mathbf{M}^L)^{-1}\mathbf{R}(\mathbf{U}^{(1)})\right],
-$$
-
-$$
-\mathbf{U}^{n+1} = \tfrac{1}{3}\,\mathbf{U}^n
-+ \tfrac{2}{3}\!\left[\mathbf{U}^{(2)} + \Delta t\,(\mathbf{M}^L)^{-1}\mathbf{R}(\mathbf{U}^{(2)})\right].
-$$
-
-**SSP coefficient** $$\mathcal{C} = 1$$ (same CFL restriction as forward Euler).
-**Cost**: 3 residual evaluations per step.
-
-SSP-RK3 provides one order of accuracy higher than SSP-RK2 at a 50% increase in
-computational cost per step.  The improvement is most visible in smooth regions of the
-flow; across shocks the order reduction (due to the discontinuity) makes the practical
-difference small.
+Adding SSP-RK3 would be straightforward — the convex-combination
+structure is identical — but the cost/benefit favours SSP-RK2.
 
 ---
 
 ## CFL stability condition
 
-Explicit time integrators are conditionally stable.  The maximum stable time step is
-bounded by the **Courant–Friedrichs–Lewy (CFL) condition**:
+The maximum stable explicit step is bounded by the
+**Courant–Friedrichs–Lewy (CFL)** condition. For a 2-D Euler-type
+hyperbolic system on a structured grid the standard bound is
 
 $$
-\Delta t = \text{CFL} \cdot \frac{h_\text{min}}{\max_{i}(|\mathbf{u}_i| + c_i)},
+\boxed{\;\;
+\Delta t \;\leq\;
+\sigma\,
+\frac{h_\text{min}}{\displaystyle \max_{i,\,j}\,\bigl(\,\sqrt{u_r^2 + u_z^2} \;+\; c\,\bigr)_{ij}}
+\;\;}
+\tag{CFL}
 $$
 
-where:
+with
 
-| Symbol | Meaning |
-|--------|---------|
-| $$\text{CFL}$$ | Safety factor $$\in (0, 1]$$; default 0.4 |
-| $$h_\text{min}$$ | Global minimum cell diameter (MPI-reduced) |
-| $$\|\mathbf{u}_i\|$$ | Velocity magnitude at DOF $$i$$ |
-| $$c_i$$ | Local sound speed at DOF $$i$$ |
+* $$\sigma$$ the CFL safety factor (`time.cfl` in JSON; default 0.4),
+* $$h_\text{min} = \min(\Delta r,\, \Delta z)$$,
+* the maximum taken over **interior cells** of the rank,
+  then **MPI-reduced** with `MPI.Allreduce(..., MAX)` to a global maximum.
 
-The maximum wave speed $$\max(|\mathbf{u}| + c)$$ is computed over all scalar DOFs and
-MPI-reduced with `MPI.MAX`.
+The face-normal-only form of the bound (the more relaxed
+$$\sigma\,\min[\Delta r/\max(|u_r|+c),\,\Delta z/\max(|u_z|+c)]$$) would
+give a slightly larger admissible step on highly anisotropic flow
+fields, but the simpler $$h_\text{min}/\max(|\mathbf{u}|+c)$$ form is
+robust in 2-D and is what the production code uses.
 
-### Detonation velocity bound
-
-The air-$$\gamma$$ sound speed is a poor estimate inside JWL-product cells.  Whenever any
-material indicator $$\lambda > 0$$ is present on any rank, the solver additionally bounds
-the wave speed by the user-supplied detonation velocity $$D$$:
+The local sound speed $$c$$ is the EOS-blended estimate
+([Equations of State](eos))
 
 $$
-v_\text{max} = \max\!\left(\max_i(|\mathbf{u}_i| + c_i),\; D\right).
+c \;=\; (1 - \lambda)\,c_\text{air} \;+\; \lambda\,c_\text{JWL},
 $$
 
-This prevents the CFL step from becoming larger than $$h_\text{min}/D$$ while explosive
-products are still expanding from the charge.
+evaluated from $$(\rho, p)$$ at the cell centre. The implementation is
+`compute_dt` in `src/timeint.jl`.
 
-### Hard upper bound
+### Detonation-velocity safeguard
 
-An optional `dt_max` parameter in the input JSON imposes a hard ceiling on $$\Delta t$$,
-independent of the CFL condition.  This is useful when early-time dynamics (e.g., the
-initial detonation pulse) require a coarser time step than the CFL condition would impose
-for stability but a finer step than physics requires.
+The gamma-equivalent JWL sound speed used by the CFL estimator can
+under-estimate the true detonation-front speed by a wide margin: the
+ratio $$D / c_\text{JWL}$$ for unburned TNT at $$e_\text{CJ}$$ exceeds
+unity by roughly an order of magnitude. Using only the cell-centre
+$$|\mathbf{u}| + c$$ during the burn would let the explicit step grow
+larger than $$h_\text{min}/D$$, which would fail to advance the
+burn front correctly and crash within a few steps.
+
+The solver therefore **floors** the maximum global wave speed by the
+user-supplied detonation velocity $$D$$ whenever any cell on any rank
+still holds explosive material:
+
+$$
+v_\text{max}
+\;=\;
+\max\!\Bigl(\,
+  \max_{i,j}\bigl(|\mathbf{u}_{ij}| + c_{ij}\bigr),\;\; D
+\,\Bigr)
+\quad
+\text{if}\;\;
+\max_{i,j}\,\lambda_{ij} > 0
+\;\;\text{(global max via Allreduce).}
+$$
+
+Once the burn finishes everywhere ($$\max\,\lambda_{ij} = 0$$ on all
+ranks — the burn front has swept all charge cells and lambda has been
+reset by the IC, which only holds in Brode mode where lambda is
+identically 1; in programmed-burn mode lambda remains 1 inside the
+charge for the rest of the run, so this safeguard remains active for
+the duration of any run that contains an explosive charge), the
+$$|\mathbf{u}| + c$$ part is used unmodified.
+
+### Hard upper bound: `dt_max`
+
+An optional `time.dt_max` JSON parameter imposes a hard ceiling on
+$$\Delta t$$ independent of the CFL bound. This is occasionally useful
+when the early-time dynamics produce a much larger admissible step than
+the user wants (e.g. for stable temporal sampling of an output field).
+By default `dt_max` is `Inf` and is inactive.
+
+### Last-step shrink
+
+The actual step taken each iteration is
+
+$$
+\Delta t_\text{step} \;=\; \min\bigl(\Delta t_\text{CFL},\;\; \Delta t_\text{max},\;\; t_\text{end} - t\bigr).
+$$
+
+The third term ensures the run terminates **exactly** at $$t_\text{end}$$
+without a final overshoot.
 
 ---
 
-## Burn indicator update
+## Update of the burn fraction
 
-Before each outer time step the material indicator is updated from the analytic
-programmed-burn formula (see [Programmed Burn Model](burn-model)):
+Before each outer time step the reaction-progress field is refreshed
+analytically:
 
 ```
-_update_burn(state, burn, t)
+update_burn!(state.lambda, grid, charge, t)
+exchange_halo_scalar!(state.lambda, grid, topo)
 ```
 
-This call re-evaluates $$\lambda(r, z, t)$$ at all DG0 DOF coordinates.  The `mat` field
-is **not** updated within the RK sub-stages; it is kept fixed at the value corresponding
-to the start of the time step.  This avoids inconsistencies between the burn front
-position used in different stage evaluations.
+This call evaluates the kinematic burn rule (see
+[Programmed Burn Model](burn-model)) at every cell centre and overwrites
+$$\lambda_{ij}$$ where the front has just arrived. The burn fraction
+is then **frozen for the duration of the outer step**, so both stages
+of the SSP-RK2 update see the same $$\lambda_{ij}$$. Holding $$\lambda$$
+fixed within the RK is consistent because the programmed-burn front is
+purely kinematic and does not depend on the flow field; updating it
+mid-step would couple the two RK stages through a non-smooth function
+and destroy the formal 2nd-order accuracy.
+
+After the analytic update the lambda field is halo-exchanged so that
+each rank's ghost layers contain the correct neighbour values for the
+HLLC EOS evaluation on inter-rank faces.
 
 ---
 
-## Symmetry boundary condition enforcement
+## Boundary-condition enforcement within the RK
 
-After each stage update, the radial momentum $$\rho u_r$$ is zeroed at all DOFs lying on
-the $$r = 0$$ axis, and (when $$z_\text{min} = 0$$) the axial momentum $$\rho u_z$$ is zeroed
-at all DOFs on the $$z = 0$$ plane:
+The conservative-state ghost layers are filled at the start of every
+RK stage (not just every outer step) so that each residual evaluation
+sees a consistent state on every face:
 
-$$
-(\rho u_r)\big|_{r=0} = 0, \qquad (\rho u_z)\big|_{z=0} = 0.
-$$
+```
+exchange_halos!(U, grid, topo)            # fill internal-seam ghosts from neighbours
+exchange_halo_scalar!(rhoY, grid, topo)
+apply_bcs!(U, grid, topo;                 # fill physical-edge ghosts (mirror or zero-grad)
+           reflect_r_min=..., reflect_z_min=...)
+apply_scalar_bcs!(rhoY, grid, topo)
+compute_fluxes!(state, grid)              # MUSCL + HLLC at every interior face
+compute_residual!(state, grid)            # divergence + geometric source
+```
 
-These constraints enforce the symmetry conditions exactly, preventing numerical drift
-of the velocity components that should be zero by symmetry.
+The enforced BCs (mirror for the symmetry axis and the rigid ground,
+zero-gradient outflow elsewhere) are detailed in
+[Boundary Conditions](boundary-conditions). Because the BCs operate on
+ghost cells rather than on interior DOFs, no separate constraint
+projection on the interior state is required — the BCs propagate into
+the interior through the MUSCL stencil and the HLLC flux on the next
+face evaluation.

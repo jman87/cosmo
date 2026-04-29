@@ -11,7 +11,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
-INPUT="${SCRIPT_DIR}/input.json"
+INPUT="${SCRIPT_DIR}/input.jsonc"
 
 cd "${REPO_ROOT}"
 

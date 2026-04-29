@@ -19,7 +19,7 @@ struct CaseConfig
     z_max::Float64
 
     charge_shape::String                 # "sphere" or "cylinder"
-    charge_weight_lbm::Float64
+    charge_mass::Float64                 # mass of charge in lbf*s^2/in (consistent units throughout)
     charge_center_r::Float64
     charge_center_z::Float64
     charge_half_height::Float64          # cylinder only
@@ -42,9 +42,23 @@ end
 
 Parse a JSON input file. Optional keys fall back to sensible defaults.
 """
+# Read a JSON file that may contain `//` line comments and `/* ... */`
+# block comments (neither of which the strict JSON spec allows). String
+# literals are preserved untouched; only comments outside string literals
+# are stripped before the result is handed to JSON.parse.
+function read_json_with_comments(path::AbstractString)
+    raw = read(path, String)
+    # Strip /* ... */ block comments first (non-greedy, multi-line).
+    cleaned = replace(raw, r"/\*[\s\S]*?\*/" => "")
+    # Strip // line comments while preserving strings. A simple regex that
+    # matches // outside of double-quoted strings:
+    cleaned = replace(cleaned, r"(\"(?:[^\"\\]|\\.)*\")|//[^\n]*" => s"\1")
+    return JSON.parse(cleaned)
+end
+
 function load_config(path::AbstractString)
     isfile(path) || error("Config file not found: $path")
-    raw = JSON.parsefile(path)
+    raw = read_json_with_comments(path)
 
     mesh = _required(raw, "mesh")
     domain = _required(raw, "domain")
@@ -86,6 +100,23 @@ function load_config(path::AbstractString)
         error("Unsupported time scheme: $scheme_str (use 'ssp_rk2' or 'forward_euler')")
     end
 
+    # Charge size: accept either "mass" (lbf*s^2/in, the consistent-unit
+    # value used throughout the solver) or "weight" (lbf, converted via
+    # m = W / g_c). Exactly one must be supplied. The legacy "weight_lbm"
+    # key is rejected with a clear message.
+    has_mass   = haskey(charge, "mass")
+    has_weight = haskey(charge, "weight")
+    if haskey(charge, "weight_lbm")
+        error("'weight_lbm' is no longer accepted; use 'mass' (lbf*s^2/in) or 'weight' (lbf)")
+    end
+    (has_mass || has_weight) ||
+        error("Charge size must be specified as either 'mass' (lbf*s^2/in) or 'weight' (lbf)")
+    !(has_mass && has_weight) ||
+        error("Charge size: specify either 'mass' or 'weight', not both")
+    charge_mass = has_mass ?
+        Float64(charge["mass"]) :
+        Float64(charge["weight"]) / G_C
+
     return CaseConfig(
         Int(_required(mesh, "nr")),
         Int(_required(mesh, "nz")),
@@ -93,7 +124,7 @@ function load_config(path::AbstractString)
         Float64(_required(domain, "r_max")),
         Float64(get(domain, "z_min", 0.0)),
         Float64(_required(domain, "z_max")), shape,
-        Float64(_required(charge, "weight_lbm")),
+        charge_mass,
         Float64(_required(center, "r")),
         Float64(_required(center, "z")),
         half_h,
