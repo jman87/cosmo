@@ -35,7 +35,7 @@ cosmo/
 ├── run.jl                   # entry-point script
 ├── examples/
 │   └── sphere/
-│       └── input.json       # 1-lb TNT free-air burst smoke test
+│       └── input.jsonc      # 1-lbf TNT free-air burst smoke test (JSON with // comments)
 └── src/
     ├── COSMO.jl             # module file
     ├── eos.jl               # ideal gas + JWL EOS, constants
@@ -60,10 +60,10 @@ From the **parent directory of the repository** (i.e., the folder containing `co
 julia --project=cosmo -e 'using Pkg; Pkg.instantiate()'
 
 # 2) serial run
-julia --project=cosmo cosmo/run.jl cosmo/examples/sphere/input.json
+julia --project=cosmo cosmo/run.jl cosmo/examples/sphere/input.jsonc
 
 # 3) parallel run (4 MPI ranks)
-mpiexec -n 4 julia --project=cosmo cosmo/run.jl cosmo/examples/sphere/input.json
+mpiexec -n 4 julia --project=cosmo cosmo/run.jl cosmo/examples/sphere/input.jsonc
 ```
 
 The `MPI.jl` package ships a JLL-built MPI runtime by default; that works
@@ -82,12 +82,15 @@ To run your own case, copy the example input file, edit the mesh, domain,
 charge, and time controls, and run:
 
 ```bash
-julia --project=cosmo cosmo/run.jl path/to/your_input.json
+julia --project=cosmo cosmo/run.jl path/to/your_input.jsonc
 ```
 
 ## Input file
 
-Top-level keys (see `examples/sphere/input.json`):
+Top-level keys (see `examples/sphere/input.jsonc`). The loader strips both
+`//` line comments and `/* ... */` block comments before parsing, so input
+files may be written in either strict JSON (`.json`) or JSON-with-comments
+(`.jsonc`):
 
 | key | meaning | required |
 |-----|---------|----------|
@@ -95,7 +98,8 @@ Top-level keys (see `examples/sphere/input.json`):
 | `domain.r_min`, `domain.r_max` | radial extent (in) | r_max yes; r_min defaults to 0 |
 | `domain.z_min`, `domain.z_max` | axial extent (in) | z_max yes; z_min defaults to 0 |
 | `charge.shape` | `"sphere"` or `"cylinder"` | yes |
-| `charge.weight_lbm` | charge mass in lbm | yes |
+| `charge.mass` | charge mass in lbf*s^2/in (consistent units) | one of `mass`/`weight` required |
+| `charge.weight` | charge weight in lbf (converted via m = W / g_c, g_c = 386.088 in/s^2) | one of `mass`/`weight` required |
 | `charge.center.r`, `.z` | charge centre | yes |
 | `charge.cylinder_half_height` | when `shape == "cylinder"` | conditional |
 | `charge.explosive_material` | `"tnt"` (only TNT is built in) | optional, default `"tnt"` |
