@@ -3,7 +3,7 @@
 COSMO is an Eulerian finite volume solver written in **Julia**. It currently supports two-dimensional axisymmetric models and generates output in VTK format. It has preliminary support for parallel simulation with MPI.
 
 <div align="left">
-  <img src="./docs/pics/blast01.png" alt="Blast wave snapshot" style="max-width:250px; width:auto; height:auto;">
+  <img src="./docs/pics/blast01.png" alt="Blast wave snapshot" style="max-width:250px; width:250; height:auto;">
 </div>
 
 ## What it does
