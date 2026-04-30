@@ -27,6 +27,9 @@ Manifest*.toml
 LocalPreferences.toml
 JuliaLocalPreferences.toml
 
+# MacOS-specific files
+.DS_Store
+
 # Example subfolders
 examples/*output*/
 examples/*results*/

@@ -1,13 +1,14 @@
 # Computational Overpressure Shock Modelling Operator (COSMO)
 
-Two-dimensional axisymmetric Eulerian **finite-volume** blast solver, in Julia,
-parallelised with MPI.
+COSMO is an Eulerian finite volume solver written in **Julia**. It currently supports two-dimensional axisymmetric models and generates output in VTK format. It has preliminary support for parallel simulation with MPI.
+
+<div align="left">
+  <img src="./docs/pics/blast01.png" alt="Blast wave snapshot" style="max-width:250px; width:auto; height:auto;">
+</div>
 
 ## What it does
 
-Solves the compressible Euler equations in cylindrical (r, z) coordinates on a
-uniform structured grid. Numerical ingredients are deliberately conservative
-choices that work for almost any blast / shock problem out of the box:
+Solves the compressible Euler equations in cylindrical (r, z) coordinates on a uniform structured grid. Numerical ingredients are deliberately conservative choices that work for almost any blast / shock problem out of the box:
 
 - **HLLC** approximate Riemann solver (Toro, Spruce & Speares 1994)
 - **MUSCL** spatial reconstruction with the **minmod** slope limiter (TVD)
@@ -20,9 +21,7 @@ choices that work for almost any blast / shock problem out of the box:
   initiation point at velocity D); **Brode compressed-gas balloon** IC optional
 - Reflective BC at r = 0 (axis) and at z = 0 (rigid ground / symmetry plane);
   zero-gradient outflow at r_max and z_max
-- **MPI parallelism** with simple geometric block decomposition along (r, z),
-  non-blocking halo exchange on the conservative state and the burn field, and
-  a Gatherv-based VTK writer
+- **MPI parallelism** with simple geometric block decomposition along (r, z), non-blocking halo exchange on the conservative state and the burn field, and a Gatherv-based VTK writer
 
 Imperial units throughout (`in`, `s`, `psi`, `lbf*s^2/in^4`).
 
@@ -57,18 +56,19 @@ From the **parent directory of the repository** (i.e., the folder containing `co
 
 ```bash
 # 1) one-time: install Julia dependencies
-julia --project=cosmo -e 'using Pkg; Pkg.instantiate()'
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
 
 # 2) serial run
-julia --project=cosmo cosmo/run.jl cosmo/examples/sphere/input.jsonc
+julia --project=. ./run.jl cosmo/examples/sphere/input.jsonc
 
-# 3) parallel run (4 MPI ranks)
-mpiexec -n 4 julia --project=cosmo cosmo/run.jl cosmo/examples/sphere/input.jsonc
+# 3A) parallel run (4 MPI ranks)
+mpiexec -n 4 julia --project=. ./run.jl ./examples/sphere/input.jsonc
+
+# 3B) parallel run (4 MPI ranks)
+~/.julia/bin/mpiexecjl --project=. -n 4 julia --project=. run.jl examples/sphere/input.jsonc
 ```
 
-The `MPI.jl` package ships a JLL-built MPI runtime by default; that works
-without any system MPI install. If you prefer to use a system MPI (e.g.
-OpenMPI from Homebrew), point `MPI.jl` at it once with:
+The `MPI.jl` package ships a JLL-built MPI runtime by default; that works without any system MPI install. If you prefer to use a system MPI (e.g. OpenMPI from Homebrew), point `MPI.jl` at it once with:
 
 ```bash
 julia --project=cosmo -e 'using MPIPreferences; MPIPreferences.use_system_binary()'

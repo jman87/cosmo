@@ -32,7 +32,7 @@
     "scheme": "ssp_rk2"
   },
   "output": {
-    "directory": "cosmo/examples/sphere/output",
+    "directory": "examples/sphere/output",
     "frequency": 50,
     "pvd_name": "sphere"
   }
