@@ -35,7 +35,7 @@ Numerical flux through a face whose outward normal is the `dim` direction
 the left and right of the face, and lamL, lamR are the local burn
 fractions used to evaluate the EOS.
 """
-function hllc_flux(UL::NTuple{4,Float64}, UR::NTuple{4,Float64},
+@inline function hllc_flux(UL::NTuple{4,Float64}, UR::NTuple{4,Float64},
                    lamL::Float64, lamR::Float64, dim::Int)
     rhoL, urL, uzL, pL = primitives(UL, lamL)
     rhoR, urR, uzR, pR = primitives(UR, lamR)

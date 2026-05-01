@@ -45,7 +45,7 @@ function run_case(input_path::AbstractString)
     end
 
     update_burn!(state.lambda, grid, charge, 0.0)
-    exchange_halo_scalar!(state.lambda, grid, topo)
+    exchange_halo_scalar!(state.lambda, grid, topo, state.hbufs)
     write_snapshot!(writer, state, 0.0, 0)
 
     stepper! = cfg.scheme === :ssp_rk2 ? step_ssp_rk2! : step_forward_euler!
@@ -57,7 +57,7 @@ function run_case(input_path::AbstractString)
     while t < cfg.t_end
         # Refresh programmed-burn front (no-op for BRODE).
         update_burn!(state.lambda, grid, charge, t)
-        exchange_halo_scalar!(state.lambda, grid, topo)
+        exchange_halo_scalar!(state.lambda, grid, topo, state.hbufs)
 
         dt = compute_dt(state, grid, topo, charge, cfg.cfl, cfg.dt_max)
         dt = min(dt, cfg.t_end - t)

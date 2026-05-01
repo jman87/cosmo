@@ -34,7 +34,7 @@ function build_topology(comm::MPI.Comm)
     Pr    = Int(dims[1])
     Pz    = Int(dims[2])
 
-    cart = MPI.Cart_create(comm, [Pr, Pz]; periodic=[false, false], reorder=false)
+    cart = MPI.Cart_create(comm, [Pr, Pz]; periodic=[false, false], reorder=true)
     cr, cz = MPI.Cart_coords(cart)
 
     nbr_left,  nbr_right = MPI.Cart_shift(cart, 0, 1)

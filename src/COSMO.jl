@@ -27,6 +27,7 @@ using JSON
 using Printf
 using WriteVTK
 using MPI
+using LoopVectorization
 
 include("eos.jl")
 include("config.jl")

@@ -27,6 +27,7 @@ struct State
                                #   moves with the products as they expand
     rhoY0 ::Array{Float64,2}   # snapshot for RK
     LrhoY ::Array{Float64,2}   # residual for rhoY
+    hbufs ::HaloBuffers        # pre-allocated MPI communication buffers
 end
 
 function build_state(grid::Grid)
@@ -39,7 +40,8 @@ function build_state(grid::Grid)
     rhoY  = zeros(Float64, grid.nri, grid.nzj)
     rhoY0 = similar(rhoY)
     LrhoY = similar(rhoY)
-    return State(U, U0, L, Fr, Fz, lam, rhoY, rhoY0, LrhoY)
+    hbufs = build_halo_buffers(grid)
+    return State(U, U0, L, Fr, Fz, lam, rhoY, rhoY0, LrhoY, hbufs)
 end
 
 # ---- residual assembly ---------------------------------------------------
@@ -51,9 +53,10 @@ function compute_fluxes!(state::State, grid::Grid)
     Fz  = state.Fz
     ng  = grid.ng
 
-    # r-fluxes through interior + adjacent boundary faces
-    @inbounds for j in interior_j(grid)
-        for iface in (ng + 1):(grid.nr + ng + 1)
+    # r-fluxes through interior + adjacent boundary faces.
+    # Each j-strip writes to an independent column of Fr, so threads are safe.
+    Threads.@threads for j in interior_j(grid)
+        @inbounds for iface in (ng + 1):(grid.nr + ng + 1)
             i_L = iface - 1
             i_R = iface
             U_LL = (U[1,i_L-1,j], U[2,i_L-1,j], U[3,i_L-1,j], U[4,i_L-1,j])
@@ -76,11 +79,11 @@ function compute_fluxes!(state::State, grid::Grid)
         end
     end
 
-    # z-fluxes
-    @inbounds for jface in (ng + 1):(grid.nz + ng + 1)
+    # z-fluxes. Each jface writes to an independent slice of Fz.
+    Threads.@threads for jface in (ng + 1):(grid.nz + ng + 1)
         j_L = jface - 1
         j_R = jface
-        for i in interior_i(grid)
+        @inbounds for i in interior_i(grid)
             U_LL = (U[1,i,j_L-1], U[2,i,j_L-1], U[3,i,j_L-1], U[4,i,j_L-1])
             U_L  = (U[1,i,j_L  ], U[2,i,j_L  ], U[3,i,j_L  ], U[4,i,j_L  ])
             U_R  = (U[1,i,j_R  ], U[2,i,j_R  ], U[3,i,j_R  ], U[4,i,j_R  ])
@@ -110,8 +113,9 @@ function compute_residual!(state::State, grid::Grid)
     dr   = grid.dr
     dz   = grid.dz
 
-    @inbounds for j in interior_j(grid)
-        for i in interior_i(grid)
+    # Each j-strip writes to independent rows of L and LY — no race conditions.
+    Threads.@threads for j in interior_j(grid)
+        @inbounds for i in interior_i(grid)
             r_c = rcell(grid, i)
             r_L = rface(grid, i)        # left  face of cell i
             r_R = rface(grid, i + 1)    # right face of cell i
@@ -155,8 +159,8 @@ end
 
 function rhs!(state::State, grid::Grid, topo::Topology;
               reflect_r_min, reflect_z_min)
-    exchange_halos!(state.U, grid, topo)
-    exchange_halo_scalar!(state.rhoY, grid, topo)
+    exchange_halos!(state.U, grid, topo, state.hbufs)
+    exchange_halo_scalar!(state.rhoY, grid, topo, state.hbufs)
     apply_bcs!(state.U, grid, topo;
                reflect_r_min=reflect_r_min, reflect_z_min=reflect_z_min)
     apply_scalar_bcs!(state.rhoY, grid, topo)
@@ -212,10 +216,10 @@ function step_forward_euler!(state::State, grid::Grid, topo::Topology, dt::Float
                              reflect_r_min::Bool, reflect_z_min::Bool)
     rhs!(state, grid, topo;
          reflect_r_min=reflect_r_min, reflect_z_min=reflect_z_min)
-    @inbounds @simd for I in eachindex(state.U)
+    @turbo for I in eachindex(state.U)
         state.U[I] += dt * state.L[I]
     end
-    @inbounds @simd for I in eachindex(state.rhoY)
+    @turbo for I in eachindex(state.rhoY)
         state.rhoY[I] += dt * state.LrhoY[I]
     end
     return nothing
@@ -233,19 +237,19 @@ function step_ssp_rk2!(state::State, grid::Grid, topo::Topology, dt::Float64;
 
     rhs!(state, grid, topo;
          reflect_r_min=reflect_r_min, reflect_z_min=reflect_z_min)
-    @inbounds @simd for I in eachindex(state.U)
+    @turbo for I in eachindex(state.U)
         state.U[I] = state.U0[I] + dt * state.L[I]
     end
-    @inbounds @simd for I in eachindex(state.rhoY)
+    @turbo for I in eachindex(state.rhoY)
         state.rhoY[I] = state.rhoY0[I] + dt * state.LrhoY[I]
     end
 
     rhs!(state, grid, topo;
          reflect_r_min=reflect_r_min, reflect_z_min=reflect_z_min)
-    @inbounds @simd for I in eachindex(state.U)
+    @turbo for I in eachindex(state.U)
         state.U[I] = 0.5 * state.U0[I] + 0.5 * (state.U[I] + dt * state.L[I])
     end
-    @inbounds @simd for I in eachindex(state.rhoY)
+    @turbo for I in eachindex(state.rhoY)
         state.rhoY[I] = 0.5 * state.rhoY0[I] + 0.5 * (state.rhoY[I] + dt * state.LrhoY[I])
     end
     return nothing
